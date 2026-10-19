@@ -6,7 +6,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/python3</string><string>-I</string>
-    <string>__DIR__/claude_sessions.py</string><string>snapshot</string><string>--quiet</string>
+    <string>__DIR__/claude_sessions.py</string><string>snapshot</string><string>--quiet</string><string>--auto</string>
   </array>
   <key>StartInterval</key><integer>60</integer>
   <key>RunAtLoad</key><true/>

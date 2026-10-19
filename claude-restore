@@ -1,5 +1,5 @@
 #!/bin/sh
 # claude-restore [restore|show|recover|snapshot] [args]  — default: restore last pre-boot snapshot
 here="$(dirname "$(readlink -f "$0")")"
-case "$1" in snapshot|recover|show|restore|titles) ;; *) set -- restore "$@" ;; esac
+case "$1" in snapshot|recover|show|restore|titles|prepare|firefox|-h|--help) ;; *) set -- restore "$@" ;; esac
 exec /usr/bin/python3 -I "$here/claude_sessions.py" "$@"

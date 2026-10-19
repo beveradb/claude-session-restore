@@ -3,6 +3,36 @@
 Records which iTerm2 tab and split every Claude Code session lives in, so a restart (planned,
 or a dead battery) doesn't lose track of what was open, and puts them back in the same tabs.
 
+## Before a planned reboot
+
+```sh
+claude-restore prepare            # or: prepare --wait 10  (wait up to 10 min for busy sessions)
+```
+
+1. Lists Claude sessions still mid-turn. They resume fine afterwards, but the in-flight turn is lost.
+2. Takes a final iTerm2 snapshot and **freezes** it for 30 min (`--freeze MIN`). Background
+   snapshots pause, so windows closing during shutdown can't overwrite it. The freeze lapses
+   on its own if you don't reboot. `prepare --cancel` lifts it early.
+3. Saves every Firefox window and tab (see below).
+
+Then restart from the Apple menu. You don't need to quit iTerm2 or touch tmux. Quitting
+iTerm2 alone doesn't stop claude-auto-retry's tmux sessions; a reboot does, and that's harmless
+because transcripts are written as you go.
+
+## Firefox tabs
+
+```sh
+claude-restore firefox save [--previous]     # --previous: the session Firefox didn't restore (after a crash)
+claude-restore firefox list [file]
+claude-restore firefox restore [file] [--dry-run] [--window N]
+```
+
+Reads Firefox's own session files (`recovery.jsonlz4` / `sessionstore.jsonlz4` / `previous.jsonlz4`,
+mozLz4-compressed) and writes `~/.local/state/claude-session-restore/firefox/<ts>.json` plus a
+clickable `.html` list. `restore` reopens each window with its tabs (URLs and window grouping
+only; not pinned state, containers or tab groups). By default it uses the newest file from
+before the current boot.
+
 ## After a restart
 
 1. Open iTerm2. It's simplest if it opens a single plain window: turn off
@@ -36,6 +66,8 @@ tabs, splitting or creating tabs as needed. It's also used automatically for `--
 claude-restore show [file]     # what a snapshot contains, grouped by tab
 claude-restore snapshot        # take one now (launchd does it every 60s)
 claude-restore titles          # retry titling new tabs (after enabling the Python API)
+claude-restore prepare         # before a planned reboot (see above)
+claude-restore firefox ...     # Firefox tabs (see above)
 claude-restore recover [--ids <id>...] [--window 40] [--until ISO]
 ./scan_sessions.py --days 8    # every recent interactive session: title, last prompt, branch
 ```
@@ -81,7 +113,7 @@ macOS + iTerm2 + Claude Code. Python API recommended (Settings › General › M
 
 ```sh
 git clone https://github.com/beveradb/claude-session-restore && cd claude-session-restore
-./install.sh   # venv + iterm2 pkg, ~/.local/bin/claude-restore, LaunchAgent, zsh pane hook
+./install.sh   # venv + iterm2/lz4 pkgs, ~/.local/bin/claude-restore, LaunchAgent, zsh pane hook
 ```
 
 Every `~/.claude*` dir that contains `projects/` counts as a Claude Code config dir, so

@@ -6,7 +6,7 @@ LABEL=uk.beveridge.claude-session-snapshot
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 [ -x "$DIR/.venv/bin/python" ] || python3 -m venv "$DIR/.venv"
-"$DIR/.venv/bin/pip" -q install iterm2
+"$DIR/.venv/bin/pip" -q install iterm2 lz4
 [ -f "$DIR/tabs.json" ] || cp "$DIR/tabs.example.json" "$DIR/tabs.json"
 
 mkdir -p "$HOME/.local/bin"

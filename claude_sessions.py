@@ -304,7 +304,25 @@ def snapshot_from_env(procs, claudes):
             "panes": sorted(panes.values(), key=lambda p: (p["window"], p["tab"], p["pane"]))}
 
 
+FREEZE_FILE = os.path.join(STATE_DIR, "frozen.json")
+
+
+def freeze_active():
+    """`prepare` freezes the snapshot it took so windows closing during shutdown can't replace it.
+    The freeze lapses after its timeout (you didn't reboot after all) or once a new boot happens."""
+    try:
+        f = json.load(open(FREEZE_FILE))
+    except (OSError, ValueError):
+        return None
+    if f.get("boot_time") != boot_time() or time.time() > f.get("until", 0):
+        os.remove(FREEZE_FILE)
+        return None
+    return f
+
+
 def cmd_snapshot(a):
+    if a.auto and freeze_active():
+        return  # background run during a prepare freeze
     snap = take_snapshot()
     os.makedirs(SNAP_DIR, exist_ok=True)
     # Only write when the layout/sessions changed, so history stays meaningful.
@@ -326,6 +344,7 @@ def cmd_snapshot(a):
         with open(os.path.join(SNAP_DIR, name), "w") as f:
             json.dump(snap, f, indent=1)
         open(last_digest_file, "w").write(digest)
+    a.written = latest
     cutoff = time.time() - KEEP_DAYS * 86400
     for f in glob.glob(os.path.join(SNAP_DIR, "*.json")):
         if os.path.getmtime(f) < cutoff:
@@ -743,6 +762,9 @@ def restore_exact(snap, a, live, attached):
     if r.returncode:
         sys.exit("layout build failed: " + r.stderr[-2000:])
     print("restored.")
+    ff_dir = os.path.join(STATE_DIR, "firefox")
+    if any(os.path.getmtime(f) < boot_time() for f in glob.glob(os.path.join(ff_dir, "*.json"))):
+        print("Firefox tabs from before the reboot are saved: `claude-restore firefox list` / `claude-restore firefox restore`")
 
 
 def cmd_restore(a):
@@ -804,10 +826,69 @@ def cmd_restore(a):
     print(f"\nrestored {len(plan)} panes")
 
 
+def busy_sessions():
+    mine = set()
+    pid = os.getpid()  # don't wait for the Claude session that's running this command
+    for _ in range(12):
+        line = sh(["ps", "-o", "ppid=", "-p", str(pid)]).strip()
+        if not line:
+            break
+        pid = int(line)
+        mine.add(pid)
+    return [c for c in live_claude_sessions(process_table()) if c.get("status") == "busy" and c["pid"] not in mine]
+
+
+def cmd_prepare(a):
+    if a.cancel:
+        if os.path.exists(FREEZE_FILE):
+            os.remove(FREEZE_FILE)
+        print("freeze cancelled; background snapshots resume")
+        return
+    print("1. Claude sessions still mid-turn")
+    deadline = time.time() + a.wait * 60
+    while True:
+        busy = busy_sessions()
+        if not busy or time.time() >= deadline:
+            break
+        print(f"   waiting for {len(busy)} busy session(s)...", end="\r", flush=True)
+        time.sleep(5)
+    for c in busy:
+        _, path = find_transcript(c["session_id"], c["config_dir"])
+        title = transcript_info(path)["title"] if path else None
+        print(f"   ⚠ busy: {title or c['session_id']}  ({c['cwd']})")
+    if not busy:
+        print("   all idle ✓")
+    elif not a.wait:
+        print("   (they'll resume fine, but their in-flight turn is lost; `prepare --wait 10` waits for them)")
+
+    print("2. iTerm2 layout")
+    a.force, a.auto, a.quiet = True, False, True
+    cmd_snapshot(a)
+    snap = json.load(open(os.path.join(STATE_DIR, "latest.json")))
+    n = sum(1 for p in snap["panes"] if p["claude"])
+    tabs = len({(p["window"], p["tab"]) for p in snap["panes"]})
+    print(f"   saved {len(snap['panes'])} panes in {tabs} tabs, {n} Claude sessions ({snap['source']})")
+    json.dump({"boot_time": boot_time(), "until": time.time() + a.freeze * 60, "taken_at": snap["taken_at"]},
+              open(FREEZE_FILE, "w"))
+    print(f"   frozen for {a.freeze} min, so closing windows/quitting iTerm2 can't overwrite it "
+          f"(`claude-restore prepare --cancel` to undo)")
+
+    print("3. Firefox tabs")
+    r = subprocess.run([VENV_PY, os.path.join(HERE, "firefox_tabs.py"), "save"], capture_output=True, text=True)
+    print("   " + (r.stdout.strip() or r.stderr.strip().splitlines()[-1] if (r.stdout or r.stderr) else "nothing saved"))
+
+    print("\nReady to reboot. Afterwards: open iTerm2, then `claude-restore` (and `claude-restore firefox` if needed).")
+
+
+def cmd_firefox(a):
+    os.execv(VENV_PY, [VENV_PY, os.path.join(HERE, "firefox_tabs.py")] + (a.args or ["list"]))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("snapshot"); s.add_argument("--quiet", action="store_true"); s.add_argument("--force", action="store_true")
+    s.add_argument("--auto", action="store_true", help="background run: skipped while `prepare` has frozen the snapshot")
     s.set_defaults(fn=cmd_snapshot)
     r = sub.add_parser("recover")
     r.add_argument("--window", type=float, default=40, help="minutes before the last pre-boot transcript write to include (default 40; heartbeat is ~16 min)")
@@ -827,6 +908,14 @@ def main():
     rs.add_argument("--fill", action="store_true", help="ignore the recorded split layout; fill idle panes of same-titled tabs")
     rs.add_argument("--keep-windows", action="store_true", help="don't close idle windows (e.g. the default arrangement) afterwards")
     rs.set_defaults(fn=cmd_restore)
+    pr = sub.add_parser("prepare", help="get ready to reboot: check busy sessions, freeze a snapshot, save Firefox tabs")
+    pr.add_argument("--wait", type=float, default=0, metavar="MIN", help="wait up to MIN minutes for busy sessions")
+    pr.add_argument("--freeze", type=float, default=30, metavar="MIN", help="pause background snapshots (default 30)")
+    pr.add_argument("--cancel", action="store_true", help="lift the freeze")
+    pr.set_defaults(fn=cmd_prepare)
+    ff = sub.add_parser("firefox", help="firefox tabs: save [--previous] | list [file] | restore [file] [--dry-run]")
+    ff.add_argument("args", nargs=argparse.REMAINDER)
+    ff.set_defaults(fn=cmd_firefox)
     ti = sub.add_parser("titles", help="retry setting titles of tabs created by the last restore")
     ti.set_defaults(fn=cmd_titles)
     a = ap.parse_args()
