@@ -306,6 +306,59 @@ def snapshot_from_env(procs, claudes):
             "panes": sorted(panes.values(), key=lambda p: (p["window"], p["tab"], p["pane"]))}
 
 
+def iso_week(ts):
+    y, w, _ = dt.date.fromtimestamp(ts).isocalendar()
+    return f"{y}-W{w:02d}"
+
+
+def archive_weekly(directory, companions=(), annotate=None):
+    """Keep the last file of every finished ISO week forever in <directory>/weekly/<YYYY-Www>.json.
+    Runs before pruning; history covers 14 days, so each week gets archived well before its
+    files are pruned. `annotate` can enrich the copy (e.g. bake in session titles, since
+    transcripts are eventually deleted by Claude Code's cleanupPeriodDays)."""
+    weekly = os.path.join(directory, "weekly")
+    current = iso_week(time.time())
+    newest = {}
+    for f in glob.glob(os.path.join(directory, "*.json")):
+        m = os.path.getmtime(f)
+        wk = iso_week(m)
+        if wk != current and (wk not in newest or m > newest[wk][0]):
+            newest[wk] = (m, f)
+    for wk, (m, f) in newest.items():
+        dest = os.path.join(weekly, wk + ".json")
+        if os.path.exists(dest):
+            continue
+        os.makedirs(weekly, exist_ok=True)
+        try:
+            data = json.load(open(f))
+            if annotate:
+                data = annotate(data)
+            data["archived_week"] = wk
+            with open(dest, "w") as out:
+                json.dump(data, out, indent=1)
+            for ext in companions:
+                if os.path.exists(f[:-5] + ext):
+                    with open(f[:-5] + ext, "rb") as src, open(dest[:-5] + ext, "wb") as out:
+                        out.write(src.read())
+            os.utime(dest, (m, m))
+        except (OSError, ValueError):
+            continue
+
+
+def annotate_snapshot(snap):
+    """Bake each Claude session's title and working dir into an archived snapshot."""
+    enrich(snap)
+    for p in snap["panes"]:
+        c = p.get("claude")
+        if c:
+            _, path = find_transcript(c["session_id"], c.get("config_dir"))
+            if path:
+                info = transcript_info(path)
+                c.setdefault("last_prompt", info["last_prompt"])
+                c.setdefault("last_message_at", info["last_message_at"])
+    return snap
+
+
 def prune(directory, companions=()):
     """Delete *.json (and same-named companion files) older than KEEP_DAYS or beyond MAX_FILES,
     always keeping the newest KEEP_MIN."""
@@ -361,6 +414,8 @@ def cmd_snapshot(a):
             json.dump(snap, f, indent=1)
         open(last_digest_file, "w").write(digest)
     a.written = latest
+    archive_weekly(SNAP_DIR, annotate=annotate_snapshot)
+    archive_weekly(os.path.join(STATE_DIR, "firefox"), companions=(".html",))
     prune(SNAP_DIR)
     prune(os.path.join(STATE_DIR, "firefox"), companions=(".html",))
     if not a.quiet:
@@ -894,6 +949,35 @@ def cmd_prepare(a):
     print("\nReady to reboot. Afterwards: open iTerm2, then `claude-restore` (and `claude-restore firefox` if needed).")
 
 
+def cmd_history(a):
+    weekly = os.path.join(SNAP_DIR, "weekly")
+    ff_weekly = os.path.join(STATE_DIR, "firefox", "weekly")
+    if a.week:
+        path = os.path.join(weekly, a.week + ".json")
+        if not os.path.exists(path):
+            sys.exit(f"no archived snapshot for {a.week}")
+        show(json.load(open(path)))
+        ff = os.path.join(ff_weekly, a.week + ".json")
+        if os.path.exists(ff):
+            d = json.load(open(ff))
+            tabs = [t for p in d["profiles"] for w in p["windows"] for t in w["tabs"]]
+            print(f"\nFirefox ({len(tabs)} tabs; full list: {ff[:-5]}.html)")
+            for t in tabs:
+                print(f"     {t['title'][:100]}")
+        return
+    files = sorted(glob.glob(os.path.join(weekly, "*.json")))
+    if not files:
+        print("no weekly archives yet (the first is written once the current ISO week ends)")
+        return
+    for f in files:
+        d = json.load(open(f))
+        tabs = sorted({p.get("tab_title") or "?" for p in d["panes"]}, key=str)
+        titles = [p["claude"].get("title") for p in d["panes"] if p.get("claude") and p["claude"].get("title")]
+        print(f"{os.path.basename(f)[:-5]}  {d.get('taken_at', '')[:16]}  {len(titles)} sessions  tabs: {', '.join(tabs)}")
+        for t in titles[:a.limit]:
+            print(f"      - {t}")
+
+
 def cmd_firefox(a):
     os.execv(VENV_PY, [VENV_PY, os.path.join(HERE, "firefox_tabs.py")] + (a.args or ["list"]))
 
@@ -927,6 +1011,10 @@ def main():
     pr.add_argument("--freeze", type=float, default=30, metavar="MIN", help="pause background snapshots (default 30)")
     pr.add_argument("--cancel", action="store_true", help="lift the freeze")
     pr.set_defaults(fn=cmd_prepare)
+    hi = sub.add_parser("history", help="weekly archive: list weeks, or show one (e.g. 2026-W42)")
+    hi.add_argument("week", nargs="?")
+    hi.add_argument("--limit", type=int, default=8, help="session titles to list per week")
+    hi.set_defaults(fn=cmd_history)
     ff = sub.add_parser("firefox", help="firefox tabs: save [--previous] | list [file] | restore [file] [--dry-run]")
     ff.add_argument("args", nargs=argparse.REMAINDER)
     ff.set_defaults(fn=cmd_firefox)

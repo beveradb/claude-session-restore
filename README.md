@@ -67,6 +67,7 @@ claude-restore show [file]     # what a snapshot contains, grouped by tab
 claude-restore snapshot        # take one now (launchd does it every 60s)
 claude-restore titles          # retry titling new tabs (after enabling the Python API)
 claude-restore prepare         # before a planned reboot (see above)
+claude-restore history [WEEK]  # weekly archive: list weeks, or show one (e.g. 2026-W42)
 claude-restore firefox ...     # Firefox tabs (see above)
 claude-restore recover [--ids <id>...] [--window 40] [--until ISO]
 ./scan_sessions.py --days 8    # every recent interactive session: title, last prompt, branch
@@ -94,6 +95,11 @@ against the launch dir *and* the transcript's most-used working dir), `config_di
   matched to a pane by tty: through `tmux list-clients` when wrapped by claude-auto-retry,
   otherwise the process's own tty. Argv is recorded, so flags like `--dangerously-skip-permissions` are kept.
   A history file is written only when something changes. History and saved Firefox tabs are pruned on each snapshot: anything older than 14 days or beyond 1,000 files goes, but the newest 50 are always kept, so an unchanged layout never loses its last snapshot.
+- **Weekly archive (kept forever)**: once an ISO week ends, its last snapshot is copied to
+  `snapshots/weekly/<YYYY-Www>.json`, with each session's title, working dir and last prompt
+  saved into it, because Claude Code eventually deletes old transcripts (`cleanupPeriodDays`).
+  The last saved Firefox tabs of the week go to `firefox/weekly/` (with the `.html`). About
+  12 KB per week. Browse with `claude-restore history`.
   State lives in `~/.local/state/claude-session-restore/`, logs in
   `~/Library/Logs/claude-session-snapshot.log`.
 - **Fallback when AppleScript fails:** positions come from `ITERM_SESSION_ID` in each claude
