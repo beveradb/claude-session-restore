@@ -5,7 +5,9 @@ or a dead battery) doesn't lose track of what was open, and puts them back in th
 
 ## After a restart
 
-1. Open iTerm2 (whatever opens at startup is fine).
+1. Open iTerm2. It's simplest if it opens a single plain window: turn off
+   Settings › General › Startup › "Open default window arrangement" (restore would close an
+   all-idle startup window anyway).
 2. `claude-restore --dry-run` lists every window, tab and pane with its size and what will run there.
 3. `claude-restore` (**don't type while it runs**).
 
@@ -92,3 +94,7 @@ Personal, git-ignored config:
   With an alias set, a session started with `--dangerously-skip-permissions` is resumed by
   typing the alias (`cld --resume <id>`). `default_flags` are the flags for recovered sessions
   with no recorded argv.
+
+## License
+
+MIT
