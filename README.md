@@ -93,7 +93,7 @@ against the launch dir *and* the transcript's most-used working dir), `config_di
   Each config dir's `sessions/<pid>.json` registry gives the live Claude sessions. A session is
   matched to a pane by tty: through `tmux list-clients` when wrapped by claude-auto-retry,
   otherwise the process's own tty. Argv is recorded, so flags like `--dangerously-skip-permissions` are kept.
-  A history file is written only when something changes; files are pruned after 14 days.
+  A history file is written only when something changes. History and saved Firefox tabs are pruned on each snapshot: anything older than 14 days or beyond 1,000 files goes, but the newest 50 are always kept, so an unchanged layout never loses its last snapshot.
   State lives in `~/.local/state/claude-session-restore/`, logs in
   `~/Library/Logs/claude-session-snapshot.log`.
 - **Fallback when AppleScript fails:** positions come from `ITERM_SESSION_ID` in each claude

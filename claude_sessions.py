@@ -30,7 +30,9 @@ try:
     LOCAL = json.load(open(os.path.join(HERE, "local.json")))
 except (OSError, ValueError):
     LOCAL = {}
-KEEP_DAYS = 14
+# History pruning: drop files older than KEEP_DAYS and beyond MAX_FILES, but never the newest
+# KEEP_MIN, so a layout that stays unchanged for weeks still has a snapshot to restore from.
+KEEP_DAYS, KEEP_MIN, MAX_FILES = 14, 50, 1000
 # Flags used when a recovered session has no recorded argv.
 DEFAULT_FLAGS = LOCAL.get("default_flags", ["--dangerously-skip-permissions"])
 # Flags that select/name a session; stripped from recorded argv before adding --resume.
@@ -304,6 +306,20 @@ def snapshot_from_env(procs, claudes):
             "panes": sorted(panes.values(), key=lambda p: (p["window"], p["tab"], p["pane"]))}
 
 
+def prune(directory, companions=()):
+    """Delete *.json (and same-named companion files) older than KEEP_DAYS or beyond MAX_FILES,
+    always keeping the newest KEEP_MIN."""
+    files = sorted(glob.glob(os.path.join(directory, "*.json")), key=os.path.getmtime, reverse=True)
+    cutoff = time.time() - KEEP_DAYS * 86400
+    for i, f in enumerate(files):
+        if i >= KEEP_MIN and (i >= MAX_FILES or os.path.getmtime(f) < cutoff):
+            for path in [f] + [f[:-5] + ext for ext in companions]:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+
 FREEZE_FILE = os.path.join(STATE_DIR, "frozen.json")
 
 
@@ -345,10 +361,8 @@ def cmd_snapshot(a):
             json.dump(snap, f, indent=1)
         open(last_digest_file, "w").write(digest)
     a.written = latest
-    cutoff = time.time() - KEEP_DAYS * 86400
-    for f in glob.glob(os.path.join(SNAP_DIR, "*.json")):
-        if os.path.getmtime(f) < cutoff:
-            os.remove(f)
+    prune(SNAP_DIR)
+    prune(os.path.join(STATE_DIR, "firefox"), companions=(".html",))
     if not a.quiet:
         n = sum(1 for p in snap["panes"] if p["claude"])
         print(f"snapshot: {len(snap['panes'])} panes, {n} claude sessions -> {latest}")
