@@ -627,7 +627,9 @@ def claude_command(c):
     cfg = c["config_dir"]
     if os.path.realpath(cfg) == os.path.realpath(DEFAULT_CONFIG):
         # ~/.claude is the *unset* default; setting it explicitly changes where .claude.json lives.
-        return f"(unset CLAUDE_CONFIG_DIR; {cmd})"
+        # claude-auto-retry runs claude inside a shared tmux server, which would hand an *unset*
+        # var the server's startup value (e.g. another project's config dir), so clear it there too.
+        return f"(unset CLAUDE_CONFIG_DIR; tmux set-environment -g -u CLAUDE_CONFIG_DIR 2>/dev/null; {cmd})"
     return f"CLAUDE_CONFIG_DIR={shlex.quote(cfg)} {cmd}"
 
 

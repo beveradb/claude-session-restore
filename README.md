@@ -133,6 +133,21 @@ Personal, git-ignored config:
   typing the alias (`cld --resume <id>`). `default_flags` are the flags for recovered sessions
   with no recorded argv.
 
+## Gotcha: shared tmux server and CLAUDE_CONFIG_DIR
+
+claude-auto-retry runs every claude inside one tmux server. A tmux session started from a shell
+that doesn't set `CLAUDE_CONFIG_DIR` (the `~/.claude` default) inherits the *server's* value:
+whatever the shell that first started the server had, e.g. another project's config dir. Claude
+then can't find the transcript ("No conversation found with session ID"), and new sessions land
+in the wrong config. `install.sh` adds this to `~/.tmux.conf`:
+
+```
+set -ga update-environment CLAUDE_CONFIG_DIR
+```
+
+With it, tmux copies the variable from the launching shell, or removes it when unset. Restore
+also clears it from the server before resuming a `~/.claude` session.
+
 ## License
 
 MIT

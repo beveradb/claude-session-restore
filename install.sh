@@ -19,4 +19,8 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST"
 if ! grep -q claude-session-restore "$HOME/.zshrc" 2>/dev/null; then
   printf '\n# >>> claude-session-restore >>>\n[ -f "%s/pane-hook.zsh" ] && source "%s/pane-hook.zsh"\n# <<< claude-session-restore <<<\n' "$DIR" "$DIR" >> "$HOME/.zshrc"
 fi
+# Shared tmux servers (claude-auto-retry) must not leak one project's CLAUDE_CONFIG_DIR into another.
+if ! grep -q "update-environment CLAUDE_CONFIG_DIR" "$HOME/.tmux.conf" 2>/dev/null; then
+  printf '\n# claude-session-restore: never inherit CLAUDE_CONFIG_DIR from the tmux server\nset -ga update-environment CLAUDE_CONFIG_DIR\n' >> "$HOME/.tmux.conf"
+fi
 echo "installed. Enable iTerm2 > Settings > General > Magic > Enable Python API for exact split layouts."
