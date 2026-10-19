@@ -1,0 +1,7 @@
+[
+  {"title": "Budget",    "cwd_prefix": "~/Projects/budget"},
+  {"title": "Work",      "config_dir": "~/.claude-work"},
+  {"title": "Work",      "cwd_prefix": "~/Projects/work"},
+  {"title": "Side",      "cwd_prefix": "~/Projects/side-project", "profile": "Default"},
+  {"title": "Other"}
+]

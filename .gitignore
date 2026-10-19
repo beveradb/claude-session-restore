@@ -1,0 +1,5 @@
+.venv/
+__pycache__/
+# personal config
+tabs.json
+local.json
